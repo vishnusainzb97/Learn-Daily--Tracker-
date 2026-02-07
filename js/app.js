@@ -11,7 +11,16 @@ const App = {
     currentFilter: 'all',
     searchQuery: '',
     editingId: null,
-    deferredPrompt: null
+    deferredPrompt: null,
+    // Import wizard state
+    import: {
+        currentStep: 1,
+        workbook: null,
+        sheetData: null,
+        headers: [],
+        columnMap: null,
+        processedData: null
+    }
 };
 
 // ============================================
@@ -354,6 +363,9 @@ function setupEventListeners() {
     // FAB (mobile)
     document.getElementById('fab-add')?.addEventListener('click', openAddModal);
 
+    // Import button
+    document.getElementById('import-btn')?.addEventListener('click', openImportModal);
+
     // Search input
     const searchInput = document.getElementById('search-input');
     let searchTimeout;
@@ -477,3 +489,392 @@ document.addEventListener('keydown', (e) => {
 
 // Export for debugging
 window.App = App;
+
+// ============================================
+// EXCEL IMPORT WIZARD
+// ============================================
+
+function openImportModal() {
+    // Reset import state
+    App.import = {
+        currentStep: 1,
+        workbook: null,
+        sheetData: null,
+        headers: [],
+        columnMap: null,
+        processedData: null
+    };
+
+    const bodyContent = ExcelImport.createImportModal();
+    const footer = ExcelImport.createImportFooter(1);
+
+    showImportModal('📊 Import from Excel', bodyContent, footer);
+    setupImportStep1();
+}
+
+function showImportModal(title, bodyContent, footerContent) {
+    // Remove existing modal
+    const existing = document.getElementById('modal-overlay');
+    if (existing) existing.remove();
+
+    const modalHtml = `
+    <div class="modal-overlay" id="modal-overlay">
+      <div class="modal modal-lg">
+        <div class="modal-header">
+          <h2 class="modal-title">${title}</h2>
+          <button class="modal-close" id="modal-close">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+        <div class="modal-body">
+          ${bodyContent}
+        </div>
+        <div class="modal-footer" id="import-footer">
+          ${footerContent}
+        </div>
+      </div>
+    </div>
+    `;
+
+    document.body.insertAdjacentHTML('beforeend', modalHtml);
+
+    const overlay = document.getElementById('modal-overlay');
+    const closeBtn = document.getElementById('modal-close');
+
+    requestAnimationFrame(() => {
+        overlay.classList.add('active');
+    });
+
+    const closeModal = () => {
+        overlay.classList.remove('active');
+        setTimeout(() => overlay.remove(), 300);
+    };
+
+    closeBtn?.addEventListener('click', closeModal);
+    overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) closeModal();
+    });
+
+    // Handle escape key
+    const handleEscape = (e) => {
+        if (e.key === 'Escape') {
+            closeModal();
+            document.removeEventListener('keydown', handleEscape);
+        }
+    };
+    document.addEventListener('keydown', handleEscape);
+}
+
+function updateImportFooter() {
+    const footer = document.getElementById('import-footer');
+    if (footer) {
+        footer.innerHTML = ExcelImport.createImportFooter(App.import.currentStep);
+        setupImportNavigation();
+    }
+}
+
+function setupImportNavigation() {
+    document.getElementById('import-next')?.addEventListener('click', handleImportNext);
+    document.getElementById('import-back')?.addEventListener('click', handleImportBack);
+}
+
+function handleImportNext() {
+    switch (App.import.currentStep) {
+        case 2:
+            goToStep3();
+            break;
+        case 3:
+            executeImport();
+            break;
+        case 4:
+            document.getElementById('modal-overlay')?.remove();
+            break;
+    }
+}
+
+function handleImportBack() {
+    if (App.import.currentStep > 1) {
+        App.import.currentStep--;
+        showStep(App.import.currentStep);
+        updateImportFooter();
+    }
+}
+
+function showStep(stepNum) {
+    document.querySelectorAll('.import-step').forEach((step, index) => {
+        step.classList.toggle('hidden', index + 1 !== stepNum);
+    });
+}
+
+// Step 1: File Upload
+function setupImportStep1() {
+    const uploadZone = document.getElementById('upload-zone');
+    const fileInput = document.getElementById('excel-file-input');
+
+    if (!uploadZone || !fileInput) return;
+
+    // Drag and drop
+    uploadZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadZone.classList.add('dragover');
+    });
+
+    uploadZone.addEventListener('dragleave', () => {
+        uploadZone.classList.remove('dragover');
+    });
+
+    uploadZone.addEventListener('drop', async (e) => {
+        e.preventDefault();
+        uploadZone.classList.remove('dragover');
+
+        const file = e.dataTransfer.files[0];
+        if (file) {
+            await handleFileUpload(file);
+        }
+    });
+
+    // File input
+    fileInput.addEventListener('change', async (e) => {
+        const file = e.target.files[0];
+        if (file) {
+            await handleFileUpload(file);
+        }
+    });
+
+    // Click to upload
+    uploadZone.addEventListener('click', (e) => {
+        if (e.target.tagName !== 'INPUT') {
+            fileInput.click();
+        }
+    });
+
+    setupImportNavigation();
+}
+
+async function handleFileUpload(file) {
+    const validTypes = [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-excel',
+        'text/csv'
+    ];
+
+    const ext = file.name.split('.').pop().toLowerCase();
+    if (!['xlsx', 'xls', 'csv'].includes(ext)) {
+        Components.showToast('Please upload an Excel or CSV file', 'error');
+        return;
+    }
+
+    try {
+        Components.showToast('Parsing file...', 'info');
+        const result = await ExcelImport.parseExcelFile(file);
+
+        App.import.workbook = result.workbook;
+        App.import.sheetData = result.data;
+        App.import.headers = result.data[0] || [];
+        App.import.columnMap = ExcelImport.detectColumns(App.import.headers);
+
+        Components.showToast(`Found ${result.data.length - 1} rows`, 'success');
+
+        // Go to step 2
+        App.import.currentStep = 2;
+        showStep(2);
+        setupImportStep2(result.sheets);
+        updateImportFooter();
+    } catch (error) {
+        Components.showToast('Failed to parse file: ' + error.message, 'error');
+    }
+}
+
+// Step 2: Column Mapping
+function setupImportStep2(sheets) {
+    // Populate sheet selector
+    const sheetSelect = document.getElementById('sheet-select');
+    if (sheetSelect && sheets) {
+        sheetSelect.innerHTML = sheets.map(s =>
+            `<option value="${s.name}">${s.name} (${s.rowCount} rows)</option>`
+        ).join('');
+
+        sheetSelect.addEventListener('change', () => {
+            const newData = ExcelImport.getSheetData(App.import.workbook, sheetSelect.value);
+            App.import.sheetData = newData;
+            App.import.headers = newData[0] || [];
+            App.import.columnMap = ExcelImport.detectColumns(App.import.headers);
+            populateColumnSelects();
+        });
+    }
+
+    populateColumnSelects();
+
+    // Categorization mode toggle
+    document.querySelectorAll('input[name="cat-mode"]').forEach(radio => {
+        radio.addEventListener('change', () => {
+            const manualSelect = document.getElementById('manual-category-select');
+            manualSelect?.classList.toggle('hidden', radio.value !== 'manual');
+        });
+    });
+}
+
+function populateColumnSelects() {
+    const headers = App.import.headers || [];
+
+    // Ensure columnMap exists - initialize with auto-detection if null
+    if (!App.import.columnMap) {
+        App.import.columnMap = ExcelImport.detectColumns(headers);
+    }
+    const columnMap = App.import.columnMap || {};
+
+    const optionsHtml = `<option value="-1">-- Not mapped --</option>` +
+        headers.map((h, i) => `<option value="${i}">${h || `Column ${i + 1}`}</option>`).join('');
+
+    const mappings = [
+        { id: 'map-title', field: 'title' },
+        { id: 'map-content', field: 'content' },
+        { id: 'map-date', field: 'date' },
+        { id: 'map-category', field: 'category' },
+        { id: 'map-tags', field: 'tags' }
+    ];
+
+    mappings.forEach(({ id, field }) => {
+        const select = document.getElementById(id);
+        if (select) {
+            select.innerHTML = optionsHtml;
+            if (columnMap[field] !== null && columnMap[field] !== undefined) {
+                select.value = columnMap[field];
+            }
+        }
+    });
+}
+
+// Step 3: Preview
+function goToStep3() {
+    try {
+        // Collect mapping from UI
+        App.import.columnMap = {
+            title: parseInt(document.getElementById('map-title')?.value ?? -1),
+            content: parseInt(document.getElementById('map-content')?.value ?? -1),
+            date: parseInt(document.getElementById('map-date')?.value ?? -1),
+            category: parseInt(document.getElementById('map-category')?.value ?? -1),
+            tags: parseInt(document.getElementById('map-tags')?.value ?? -1)
+        };
+
+        // Convert -1 to null
+        Object.keys(App.import.columnMap).forEach(key => {
+            if (App.import.columnMap[key] === -1) {
+                App.import.columnMap[key] = null;
+            }
+        });
+
+        // Validate that we have data to process
+        if (!App.import.sheetData || App.import.sheetData.length === 0) {
+            Components.showToast('No data found in the file', 'error');
+            return;
+        }
+
+        // Get categorization mode
+        const catMode = document.querySelector('input[name="cat-mode"]:checked')?.value || 'auto';
+        const defaultCategory = document.getElementById('default-category')?.value || 'other';
+        const hasHeaders = document.getElementById('has-headers')?.checked ?? true;
+
+        // Process data
+        App.import.processedData = ExcelImport.processImportData(
+            App.import.sheetData,
+            App.import.columnMap,
+            {
+                hasHeaders,
+                autoCategorizeEnabled: catMode === 'auto',
+                defaultCategory: catMode === 'manual' ? defaultCategory : 'other'
+            }
+        );
+
+        // Check if we got any valid entries
+        if (!App.import.processedData || App.import.processedData.length === 0) {
+            Components.showToast('No valid entries found. Check your column mapping.', 'warning');
+            return;
+        }
+
+        // Calculate preview stats
+        const existingLearnings = Storage.getLearnings();
+        const existingTitles = new Set(existingLearnings.map(l => l.title.toLowerCase()));
+
+        let newCount = 0;
+        let dupCount = 0;
+
+        App.import.processedData.forEach(learning => {
+            if (existingTitles.has(learning.title.toLowerCase())) {
+                dupCount++;
+            } else {
+                newCount++;
+            }
+        });
+
+        // Update preview UI
+        App.import.currentStep = 3;
+        showStep(3);
+
+        document.getElementById('preview-total').textContent = App.import.processedData.length;
+        document.getElementById('preview-new').textContent = newCount;
+        document.getElementById('preview-duplicates').textContent = dupCount;
+
+        // Show preview cards
+        const previewList = document.getElementById('preview-list');
+        if (previewList) {
+            const previewItems = App.import.processedData.slice(0, 5);
+            previewList.innerHTML = previewItems.map(item => {
+                const category = Storage.getCategoryById(item.category) || { name: 'Other' };
+                return `
+                    <div class="preview-card">
+                        <div class="preview-card-title">${Components.escapeHtml(item.title || 'Untitled')}</div>
+                        <div class="preview-card-meta">
+                            <span>${category.name}</span>
+                            <span>•</span>
+                            <span>${new Date(item.createdAt).toLocaleDateString()}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+
+            if (App.import.processedData.length > 5) {
+                previewList.innerHTML += `<p style="text-align: center; color: var(--color-text-muted); font-size: var(--font-size-sm);">... and ${App.import.processedData.length - 5} more</p>`;
+            }
+        }
+
+        updateImportFooter();
+    } catch (error) {
+        console.error('Import preview error:', error);
+        Components.showToast('Error processing data: ' + error.message, 'error');
+    }
+}
+
+// Step 4: Execute Import
+function executeImport() {
+    if (!App.import.processedData || App.import.processedData.length === 0) {
+        Components.showToast('No data to import', 'error');
+        return;
+    }
+
+    const result = ExcelImport.importLearnings(App.import.processedData);
+
+    // Show completion
+    App.import.currentStep = 4;
+    showStep(4);
+
+    const resultText = document.getElementById('import-result-text');
+    if (resultText) {
+        resultText.innerHTML = `
+            <strong>${result.imported}</strong> learnings imported successfully!
+            ${result.skipped > 0 ? `<br><span style="color: var(--color-text-muted)">${result.skipped} duplicates skipped</span>` : ''}
+        `;
+    }
+
+    updateImportFooter();
+
+    // Refresh the main UI
+    renderStats();
+    renderLearnings();
+
+    Components.showToast(`Imported ${result.imported} learnings!`, 'success');
+}
+
