@@ -1,0 +1,32 @@
+{
+    "name": "Daily Learning Tracker",
+    "short_name": "Learn Daily",
+    "description": "Track your daily learnings, build streaks, and grow every day with this beautiful offline-first app.",
+    "start_url": "./",
+    "display": "standalone",
+    "background_color": "#f0f4ff",
+    "theme_color": "#667eea",
+    "orientation": "portrait-primary",
+    "scope": "./",
+    "icons": [
+        {
+            "src": "icons/icon.svg",
+            "sizes": "any",
+            "type": "image/svg+xml",
+            "purpose": "any"
+        }
+    ],
+    "categories": [
+        "productivity",
+        "education",
+        "lifestyle"
+    ],
+    "shortcuts": [
+        {
+            "name": "Add Learning",
+            "short_name": "Add",
+            "description": "Quickly add a new learning",
+            "url": "./?action=add"
+        }
+    ]
+}
