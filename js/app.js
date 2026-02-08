@@ -627,41 +627,69 @@ function setupImportStep1() {
     const uploadZone = document.getElementById('upload-zone');
     const fileInput = document.getElementById('excel-file-input');
 
-    if (!uploadZone || !fileInput) return;
+    if (!uploadZone || !fileInput) {
+        console.error('[Import] Upload zone or file input not found!');
+        return;
+    }
+
+    console.log('[Import] Setting up Step 1 listeners');
+
+    // Remove any existing listeners by cloning elements
+    const newUploadZone = uploadZone.cloneNode(true);
+    uploadZone.parentNode.replaceChild(newUploadZone, uploadZone);
+
+    // Get the new file input reference after cloning
+    const newFileInput = document.getElementById('excel-file-input');
+
+    if (!newFileInput) {
+        console.error('[Import] File input not found after clone!');
+        return;
+    }
 
     // Drag and drop
-    uploadZone.addEventListener('dragover', (e) => {
+    newUploadZone.addEventListener('dragover', (e) => {
         e.preventDefault();
-        uploadZone.classList.add('dragover');
+        e.stopPropagation();
+        newUploadZone.classList.add('dragover');
     });
 
-    uploadZone.addEventListener('dragleave', () => {
-        uploadZone.classList.remove('dragover');
+    newUploadZone.addEventListener('dragleave', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        newUploadZone.classList.remove('dragover');
     });
 
-    uploadZone.addEventListener('drop', async (e) => {
+    newUploadZone.addEventListener('drop', async (e) => {
         e.preventDefault();
-        uploadZone.classList.remove('dragover');
+        e.stopPropagation();
+        newUploadZone.classList.remove('dragover');
 
+        console.log('[Import] File dropped');
         const file = e.dataTransfer.files[0];
         if (file) {
             await handleFileUpload(file);
         }
     });
 
-    // File input
-    fileInput.addEventListener('change', async (e) => {
+    // File input change
+    newFileInput.addEventListener('change', async (e) => {
+        console.log('[Import] File input changed', e.target.files);
         const file = e.target.files[0];
         if (file) {
             await handleFileUpload(file);
         }
     });
 
-    // Click to upload
-    uploadZone.addEventListener('click', (e) => {
-        if (e.target.tagName !== 'INPUT') {
-            fileInput.click();
+    // Click anywhere on upload zone (except the button/label which handles itself)
+    newUploadZone.addEventListener('click', (e) => {
+        // Don't trigger if clicking on the label/button or the input itself
+        const target = e.target;
+        if (target.tagName === 'INPUT' || target.tagName === 'LABEL' || target.closest('.upload-btn')) {
+            console.log('[Import] Click on button/label, letting it handle itself');
+            return;
         }
+        console.log('[Import] Upload zone clicked, triggering file input');
+        newFileInput.click();
     });
 
     setupImportNavigation();
