@@ -577,8 +577,21 @@ function updateImportFooter() {
 }
 
 function setupImportNavigation() {
-    document.getElementById('import-next')?.addEventListener('click', handleImportNext);
-    document.getElementById('import-back')?.addEventListener('click', handleImportBack);
+    const nextBtn = document.getElementById('import-next');
+    const backBtn = document.getElementById('import-back');
+
+    // Remove old listeners by cloning and replacing elements
+    if (nextBtn) {
+        const newNextBtn = nextBtn.cloneNode(true);
+        nextBtn.parentNode.replaceChild(newNextBtn, nextBtn);
+        newNextBtn.addEventListener('click', handleImportNext);
+    }
+
+    if (backBtn) {
+        const newBackBtn = backBtn.cloneNode(true);
+        backBtn.parentNode.replaceChild(newBackBtn, backBtn);
+        newBackBtn.addEventListener('click', handleImportBack);
+    }
 }
 
 function handleImportNext() {
@@ -678,13 +691,22 @@ async function handleFileUpload(file) {
 
         Components.showToast(`Found ${result.data.length - 1} rows`, 'success');
 
+        // Reset file input so the same file can be re-uploaded
+        const fileInput = document.getElementById('excel-file-input');
+        if (fileInput) fileInput.value = '';
+
         // Go to step 2
         App.import.currentStep = 2;
         showStep(2);
         setupImportStep2(result.sheets);
         updateImportFooter();
     } catch (error) {
+        console.error('File upload error:', error);
         Components.showToast('Failed to parse file: ' + error.message, 'error');
+
+        // Reset file input on error too
+        const fileInput = document.getElementById('excel-file-input');
+        if (fileInput) fileInput.value = '';
     }
 }
 
