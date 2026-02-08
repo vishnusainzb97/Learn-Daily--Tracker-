@@ -3,7 +3,7 @@
    Offline Support & Caching
    ============================================ */
 
-const CACHE_NAME = 'dlt-cache-v1';
+const CACHE_NAME = 'dlt-cache-v2';
 const STATIC_ASSETS = [
     './',
     './index.html',
@@ -11,6 +11,7 @@ const STATIC_ASSETS = [
     './js/storage.js',
     './js/components.js',
     './js/app.js',
+    './js/import.js',
     './manifest.json',
     './icons/icon.svg'
 ];
